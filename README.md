@@ -31,9 +31,20 @@ If you run `sk700v-display.py` as a normal user instead, everything works except
 | FREQ (GHz) | Highest current core clock, `/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq` |
 | LOAD (%) | Overall CPU utilisation from `/proc/stat` |
 | POWER (W) | Package power from RAPL, `/sys/class/powercap/intel-rapl:0/energy_uj` (also works on AMD) |
+| Power bar | Power as a share of the CPU's package power limit (see below) |
 | CPU TEMP (°C) | `k10temp` Tctl (AMD) |
 
 Intel CPUs would need the temperature source changed to `coretemp`. Pull requests are welcome.
+
+The bar under the wattage shows power as a percentage of the CPU's power limit. Intel CPUs report
+that limit through RAPL and it is read automatically. AMD CPUs don't, so it defaults to 162 W (the
+stock limit of a Ryzen 7 9800X3D). For another CPU, set `SK700V_MAX_WATTS`:
+
+```sh
+sudo systemctl edit sk700v-display     # add these two lines:
+#   [Service]
+#   Environment=SK700V_MAX_WATTS=230
+```
 
 ## Protocol
 
@@ -64,7 +75,8 @@ writes of output report `0x10` on the hidraw node:
 | 0 | 1 | `01` |
 | 1 | 1 | `02` |
 | 2 | 2 | Power, W (uint16) |
-| 4 | 2 | `0a 00` (always sent by the vendor app; meaning unknown) |
+| 4 | 1 | Power bar fill, % (uint8, 0-100). The vendor app sends `0a` (10 %). |
+| 5 | 1 | Temperature unit: `00` = °C, `01` = °F. The firmware doesn't convert, so the temperature must be sent in the chosen unit. |
 | 6 | 4 | CPU temperature, °C (float32) |
 | 10 | 1 | Load, % (uint8) |
 | 11 | 2 | Frequency, MHz (uint16), shown as GHz with two decimals |
@@ -74,6 +86,9 @@ Example: 137 W, 46 °C, 39 %, 5.28 GHz
 ```
 10 68 01 09 0d 01 02 00 89 0a 00 42 38 00 00 27 14 a0 6a 16
 ```
+
+The meaning of the power bar and unit bytes comes from
+[Birchwood-Grey/sk700v-linux](https://github.com/Birchwood-Grey/sk700v-linux) (see Related projects).
 
 The vendor app sends `03 01` followed by a data frame about once a second. The device never
 sends anything back on its own.
@@ -144,6 +159,17 @@ The official software was only run and observed. Nothing in this repo is copied 
 
 This project was built with the help of Claude, an AI assistant from Anthropic, working hands-on in
 the terminal: unpacking the app, capturing the USB traffic, testing messages, and writing the code.
+
+## Related projects
+
+Others reverse-engineered this cooler independently, before this repo:
+
+- [Birchwood-Grey/sk700v-linux](https://github.com/Birchwood-Grey/sk700v-linux): Python package
+  with a CLI, Celsius/Fahrenheit toggle and power bar, plus its own protocol notes. It runs without
+  root by making the RAPL power counters readable by all users, which is the trade-off this repo
+  avoids by running a sandboxed root service.
+- [gdedrouas/SK700V-display](https://github.com/gdedrouas/SK700V-display): earlier SK700V work
+  credited by the project above.
 
 ## Disclaimer
 

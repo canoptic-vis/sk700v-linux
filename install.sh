@@ -23,6 +23,7 @@ install -m 644 sk700v-display.service /etc/systemd/system/sk700v-display.service
 install -m 644 70-sk700v.rules /etc/udev/rules.d/70-sk700v.rules
 udevadm control --reload && udevadm trigger
 systemctl daemon-reload
-systemctl enable --now sk700v-display
+systemctl enable sk700v-display
+systemctl restart sk700v-display
 echo "SK700V display service installed and running."
 echo "Check it with: systemctl status sk700v-display"

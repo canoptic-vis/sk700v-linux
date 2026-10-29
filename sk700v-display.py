@@ -4,11 +4,12 @@
 Protocol (reverse-engineered from MasterCraft 1.0.5):
   hidraw write, report 0x10:  68 01 09 LEN PAYLOAD SUM 16   (SUM = low byte of sum from 0x68)
   03 01                                  screen on / keep-alive
-  01 02 PWR(u16) 0a 00 TEMP(f32) LOAD(u8) FREQ(u16 MHz)   all big-endian
+  01 02 PWR(u16) PWR%(u8) UNIT(u8) TEMP(f32) LOAD(u8) FREQ(u16 MHz)   all big-endian
 """
 import glob, os, struct, sys, time
 
 INTERVAL = 1.0
+DEFAULT_MAX_WATTS = 162  # stock PPT of a Ryzen 7 9800X3D; scales the power bar
 HID_ID = 'HID_ID=0003:0000381C:00000003'
 
 
@@ -31,9 +32,10 @@ def frame(payload):
     return (bytes([0x10]) + body + bytes([sum(body) & 0xff, 0x16])).ljust(64, b'\0')
 
 
-def data_payload(power_w, temp_c, load_pct, freq_mhz):
+def data_payload(power_w, power_pct, temp_c, load_pct, freq_mhz):
+    # UNIT 0 = °C (1 = °F, and then TEMP must be sent in °F; the firmware doesn't convert)
     return (bytes([0x01, 0x02]) + min(int(round(power_w)), 0xffff).to_bytes(2, 'big')
-            + bytes([0x0a, 0x00]) + struct.pack('>f', temp_c)
+            + bytes([max(0, min(int(round(power_pct)), 100)), 0x00]) + struct.pack('>f', temp_c)
             + bytes([max(0, min(int(round(load_pct)), 100))])
             + min(int(round(freq_mhz)), 0xffff).to_bytes(2, 'big'))
 
@@ -53,6 +55,7 @@ class Sensors:
         except OSError as e:
             log(f'RAPL power unavailable ({e}); power will read 0')
             self.rapl = None
+        self.max_watts = self._find_max_watts()
         self.last_stat = self._cpu_times()
         self.freq_paths = glob.glob('/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq')
 
@@ -66,6 +69,19 @@ class Sensors:
                 pass
         log('k10temp not found; temperature will read 0')
         return None
+
+    def _find_max_watts(self):
+        # Intel exposes the package power limit; AMD doesn't, so fall back to SK700V_MAX_WATTS
+        if self.rapl:
+            try:
+                return read_int(f'{self.rapl}/constraint_0_power_limit_uw') / 1e6
+            except OSError:
+                pass
+        try:
+            return float(os.environ.get('SK700V_MAX_WATTS', DEFAULT_MAX_WATTS))
+        except ValueError:
+            log('SK700V_MAX_WATTS is not a number; using default')
+            return DEFAULT_MAX_WATTS
 
     @staticmethod
     def _cpu_times():
@@ -113,7 +129,9 @@ def main():
                 log(f'cannot open {dev}: {e}')
                 continue
         try:
-            payload = data_payload(sensors.power(), sensors.temp(), sensors.load(), sensors.freq())
+            power = sensors.power()
+            power_pct = 100 * power / sensors.max_watts if sensors.max_watts > 0 else 0
+            payload = data_payload(power, power_pct, sensors.temp(), sensors.load(), sensors.freq())
             os.write(fd, frame(bytes([0x03, 0x01])))
             os.write(fd, frame(payload))
         except OSError as e:

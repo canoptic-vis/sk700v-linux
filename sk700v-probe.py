@@ -2,7 +2,7 @@
 # SK700V probe tool: send hand-built frames. Each arg is one frame:
 #   on                      -> payload 03 01
 #   test0 / test1           -> 01 01 + 12 bytes (segment test off/on)
-#   data:P,L,F,T            -> 01 02 | power u16 | 0a 00 | temp f32 BE | load u8 | freq MHz u16  (13 bytes)
+#   data:P,L,F,T            -> 01 02 | power u16 | 0a 00 (bar 10%, °C) | temp f32 BE | load u8 | freq MHz u16  (13 bytes)
 #   raw:<hex>               -> arbitrary payload
 import glob, os, struct, sys
 
